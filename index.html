@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Калькулятор питания собаки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --line: rgba(127, 127, 127, 0.2);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.tg) {
+      --bg: #1c1c1e; --bg2: #000000; --text: #f2f2f2; --hint: #8e8e93; --accent: #3e9bef;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg2); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .card { background: var(--bg); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--hint); margin: 0 0 10px; }
+  .sub { color: var(--hint); font-size: 14px; margin: 0; }
+  label { display: block; font-size: 14px; color: var(--hint); margin-bottom: 6px; }
+  .weight { display: flex; align-items: center; gap: 8px; }
+  .weight input {
+    flex: 1; font-size: 22px; font-weight: 600; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg2); color: var(--text); min-width: 0;
+  }
+  .weight span { font-size: 18px; color: var(--hint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--bg2); color: var(--text);
+    padding: 8px 14px; border-radius: 20px; font-size: 15px; cursor: pointer;
+  }
+  .chip.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .field + .field { margin-top: 16px; }
+  .norm { display: flex; justify-content: space-between; align-items: baseline; }
+  .norm b { font-size: 28px; }
+  .row { padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row-top { display: flex; justify-content: space-between; gap: 12px; }
+  .name { font-weight: 500; }
+  .pct { color: var(--hint); font-size: 13px; }
+  .amt { text-align: right; white-space: nowrap; }
+  .amt b { display: block; }
+  .amt small { color: var(--hint); }
+  .ex { color: var(--hint); font-size: 13px; margin-top: 2px; }
+  .total { font-weight: 700; }
+  .note { font-size: 13px; color: var(--hint); }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🐕 Питание собаки</h1>
+  <p class="sub">Расчёт натурального рациона по весу и возрасту</p>
+</div>
+
+<div class="card">
+  <div class="field">
+    <label for="weight">Вес собаки</label>
+    <div class="weight">
+      <input id="weight" type="number" inputmode="decimal" min="0.5" max="120" step="0.1" value="20">
+      <span>кг</span>
+    </div>
+  </div>
+  <div class="field">
+    <label>Возраст</label>
+    <div class="chips" id="ages"></div>
+  </div>
+  <div class="field">
+    <label>% от массы тела в день</label>
+    <div class="chips" id="pcts"></div>
+  </div>
+  <div class="field">
+    <label>Животный жир сверх нормы, % от нормы</label>
+    <div class="chips" id="fats"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="norm">
+    <span>Норма в день</span>
+    <b id="norm">—</b>
+  </div>
+  <p class="sub" id="normMonth"></p>
+</div>
+
+<div class="card">
+  <h2>Рацион</h2>
+  <div id="rows"></div>
+</div>
+
+<div class="card note">
+  Фрукты и овощи в норму не входят, но их должно быть не больше 20 % от приёма пищи.
+  Например: огурец, помидоры, морковь, кабачок, патисон, тыква, свёкла, яблоко, брокколи.
+</div>
+
+<script>
+// Данные из таблицы «Пропорция кормления» и листа «Меню»
+const AGES = [
+  { id: 'puppy',  label: '1–3 мес',  pcts: [6, 7, 8] },
+  { id: 'junior', label: '4–6 мес',  pcts: [4, 5] },
+  { id: 'teen',   label: '7–11 мес', pcts: [3, 4, 5] },
+  { id: 'adult',  label: 'от 12 мес', pcts: [2, 2.5, 3] },
+];
+const FATS = [15, 20, 25];
+const PARTS = [
+  { name: 'Мясо / мясная обрезь', share: 40,
+    ex: 'говядина, свинина, баранина, кролик, индейка, курица, утка' },
+  { name: 'Мышечные органы', share: 30,
+    ex: 'сердце, лёгкие, рубец, вымя, желудки куриные' },
+  { name: 'Мясокостное', share: 20,
+    ex: 'губчатые кости, шеи, головы, корпусы и спинки кур, свиные ноги, хвосты' },
+  { name: 'Кроветворные', share: 10,
+    ex: 'печень, почки' },
+];
+const DAYS_IN_MONTH = 30;
+
+const state = { weight: 20, age: 'adult', pct: 2.5, fat: 15 };
+
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg && tg.initData) {
+  document.documentElement.classList.add('tg');
+  tg.ready();
+  tg.expand();
+}
+
+const fmtDay = kg => kg < 1
+  ? Math.round(kg * 1000) + ' г'
+  : kg.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' кг';
+const fmtMonth = kg => kg.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' кг';
+
+function chips(el, items, current, onPick) {
+  el.innerHTML = '';
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (it.value === current ? ' on' : '');
+    b.textContent = it.label;
+    b.onclick = () => {
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      onPick(it.value);
+      render();
+    };
+    el.appendChild(b);
+  }
+}
+
+function render() {
+  const age = AGES.find(a => a.id === state.age);
+  if (!age.pcts.includes(state.pct)) state.pct = age.pcts[Math.floor(age.pcts.length / 2)];
+
+  chips(document.getElementById('ages'),
+    AGES.map(a => ({ value: a.id, label: a.label })), state.age, v => state.age = v);
+  chips(document.getElementById('pcts'),
+    age.pcts.map(p => ({ value: p, label: p.toLocaleString('ru-RU') + ' %' })), state.pct, v => state.pct = v);
+  chips(document.getElementById('fats'),
+    FATS.map(f => ({ value: f, label: f + ' %' })), state.fat, v => state.fat = v);
+
+  const w = state.weight;
+  const rows = document.getElementById('rows');
+  if (!(w > 0)) {
+    document.getElementById('norm').textContent = '—';
+    document.getElementById('normMonth').textContent = 'Введите вес собаки';
+    rows.innerHTML = '';
+    return;
+  }
+
+  const norm = w * state.pct / 100;
+  document.getElementById('norm').textContent = fmtDay(norm);
+  document.getElementById('normMonth').textContent = 'В месяц: ' + fmtMonth(norm * DAYS_IN_MONTH);
+
+  const list = PARTS.map(p => ({ ...p, kg: norm * p.share / 100 }));
+  list.push({ name: 'Животный жир', share: state.fat, kg: norm * state.fat / 100,
+              ex: 'кожа, гузки — сверх основной нормы' });
+  const total = list.reduce((s, p) => s + p.kg, 0);
+
+  rows.innerHTML = list.map(p => `
+    <div class="row">
+      <div class="row-top">
+        <div><div class="name">${p.name}</div><div class="pct">${p.share} %</div></div>
+        <div class="amt"><b>${fmtDay(p.kg)}</b><small>${fmtMonth(p.kg * DAYS_IN_MONTH)}/мес</small></div>
+      </div>
+      <div class="ex">${p.ex}</div>
+    </div>`).join('') + `
+    <div class="row">
+      <div class="row-top total">
+        <div>Итого</div>
+        <div class="amt"><b>${fmtDay(total)}</b><small>${fmtMonth(total * DAYS_IN_MONTH)}/мес</small></div>
+      </div>
+    </div>`;
+}
+
+document.getElementById('weight').addEventListener('input', e => {
+  state.weight = parseFloat(String(e.target.value).replace(',', '.'));
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
